@@ -1,5 +1,5 @@
 # autopilot-training-session
-autopilot-training
+
 Lo script tramite Tampermonkey fa runnare in background i video formativi su un match site definito dall'utente, inviando una notifica quando il video in questione termina.
 
 ## Funzionalità
