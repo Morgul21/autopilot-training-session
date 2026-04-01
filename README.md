@@ -7,7 +7,7 @@ Funzionalità
 
 🔔 Notifica di sistema quando il video è finito
 
-🔇 Compatibile con il mute manuale dal browser
+🔇 V1.0 Compatibile con il mute della scheda. Mutandolo direttamente dal video lo script non parte (to-do)
 Requisiti
 
 Google Chrome (o qualsiasi browser Chromium-based)
@@ -20,5 +20,7 @@ Vai sul Chrome Web Store e installa l'estensione Tampermonkey.
 Clicca sull'icona di Tampermonkey in alto a destra nel browser, poi seleziona "Crea nuovo script". CTRL+S per salvare lo script
 
 Se è andato tutto ok dovresti avere il toggle dello script attivo, e l'icona di tampermonkey con un flag rosso che ti segna il numero di script attivi.
-Se così non fosse, vai su Chrome -> Estensioni -> Gestisci Estensioni -> Tampermonkey -> Dettagli -> Consenti Script Utente -> Riapri il tab.
+Se così non fosse, vai su Chrome -> Estensioni -> Gestisci Estensioni -> Tampermonkey -> Dettagli -> Consenti Script Utente -> Riapri il tab-> Enjoy.
 
+Dovresti essere in grado di eseguire video in background in una scheda mentre stai lavorando su un altra.
+N.B. Assicurati di mutarlo da scheda di chrome: right-click->Disattiva audio sito, il mute da comandi della modale triggera un altro evento che non fa partire lo script.
