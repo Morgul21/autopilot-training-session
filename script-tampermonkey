@@ -1,0 +1,45 @@
+// ==UserScript==
+// @name         Interattiva - No Pause + Notifica
+// @namespace    http://tampermonkey.net/
+// @version      1.4
+// @match        https://frontend.interattivaeditore.com/*
+// @run-at       document-start
+// @noframes     false
+// @grant        none
+// ==/UserScript==
+
+(function() {
+
+    // Chiedi permesso notifiche al primo caricamento
+    Notification.requestPermission();
+
+    const script = document.createElement('script');
+    script.textContent = `
+        document.addEventListener('visibilitychange', e => e.stopImmediatePropagation(), true);
+        Object.defineProperty(document, 'hidden', { get: () => false });
+        Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
+
+        setInterval(() => {
+            document.querySelectorAll('video').forEach(video => {
+                if (!video._endAttached) {
+                    video._endAttached = true;
+                    video.addEventListener('ended', () => {
+                        document.dispatchEvent(new CustomEvent('__videoEnded__'));
+                    });
+                }
+            });
+        }, 500);
+    `;
+    document.documentElement.appendChild(script);
+    script.remove();
+
+    document.addEventListener('__videoEnded__', () => {
+        if (Notification.permission === 'granted') {
+            new Notification('✅ Video completato!', {
+                body: 'Il video formativo è terminato.',
+                icon: 'https://frontend.interattivaeditore.com/favicon.ico'
+            });
+        }
+    });
+
+})();
