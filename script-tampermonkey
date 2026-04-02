@@ -1,16 +1,13 @@
 // ==UserScript==
-// @name         Interattiva - No Pause + Notifica
+// @name         Interattiva - No Pause + Auto Next
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      2.2
 // @match        https://frontend.interattivaeditore.com/*
 // @run-at       document-start
 // @noframes     false
 // @grant        none
 // ==/UserScript==
-
 (function() {
-
-    // Chiedi permesso notifiche al primo caricamento
     Notification.requestPermission();
 
     const script = document.createElement('script');
@@ -18,7 +15,6 @@
         document.addEventListener('visibilitychange', e => e.stopImmediatePropagation(), true);
         Object.defineProperty(document, 'hidden', { get: () => false });
         Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
-
         setInterval(() => {
             document.querySelectorAll('video').forEach(video => {
                 if (!video._endAttached) {
@@ -33,13 +29,63 @@
     document.documentElement.appendChild(script);
     script.remove();
 
+    function realClick(el) {
+        const rect = el.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y };
+        el.dispatchEvent(new MouseEvent('mousedown', opts));
+        el.dispatchEvent(new MouseEvent('mouseup', opts));
+        el.dispatchEvent(new MouseEvent('click', opts));
+    }
+
     document.addEventListener('__videoEnded__', () => {
         if (Notification.permission === 'granted') {
             new Notification('✅ Video completato!', {
-                body: 'Il video formativo è terminato.',
+                body: 'Chiudo la modale e passo al prossimo...',
                 icon: 'https://frontend.interattivaeditore.com/favicon.ico'
             });
         }
-    });
 
+        // 1) Chiudi la modale
+        setTimeout(() => {
+            const closeBtn = document.querySelector('interattiva-hoverable-icon[iconname="interattiva-esci"]');
+            if (closeBtn) {
+                realClick(closeBtn);
+                console.log('[TM] Modale chiusa');
+            }
+
+            // 2) Cerca il prossimo video NON completato
+            setTimeout(() => {
+                const rows = document.querySelectorAll('interattiva-module-row');
+                console.log('[TM] Righe trovate:', rows.length);
+
+                for (const row of rows) {
+                    const labels = row.querySelectorAll('ion-label');
+                    let stato = '';
+                    labels.forEach(l => stato += l.textContent.trim() + ' ');
+                    stato = stato.trim();
+
+                    console.log('[TM] Riga stato:', stato);
+
+                    // Salta i video completati
+                    if (stato.includes('Completato')) continue;
+
+                    // Trovato un video non completato — cliccalo
+                    // Prova diversi target per trovare quello giusto
+                    const target = row.querySelector('div.rounded-xl.overflow-hidden')
+                                || row.querySelector('div.cursor-pointer')
+                                || row;
+
+                    console.log('[TM] ✅ Target trovato:', target.tagName, target.className.substring(0, 50));
+                    realClick(target);
+
+                    // Fallback: prova anche il click nativo
+                    setTimeout(() => target.click(), 100);
+                    break;
+                }
+            }, 2000);
+
+        }, 500);
+    });
 })();
