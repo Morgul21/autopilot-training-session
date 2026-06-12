@@ -1,33 +1,93 @@
 // ==UserScript==
 // @name         Interattiva - No Pause + Auto Next
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      3.2
 // @match        https://frontend.interattivaeditore.com/*
+// @match        https://stella.interattivaeditore.com/*
 // @run-at       document-start
 // @noframes     false
 // @grant        none
 // ==/UserScript==
 (function() {
-    Notification.requestPermission();
+    const isIframe = window.self !== window.top;
+    const TAG = isIframe ? '[TM-iframe]' : '[TM-parent]';
+    console.log(TAG, 'Script avviato su:', window.location.hostname);
 
-    const script = document.createElement('script');
-    script.textContent = `
-        document.addEventListener('visibilitychange', e => e.stopImmediatePropagation(), true);
-        Object.defineProperty(document, 'hidden', { get: () => false });
-        Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
+    // ============ DENTRO L'IFRAME (stella) ============
+    if (isIframe) {
+        // Visibility override nel page context
+        const s1 = document.createElement('script');
+        s1.textContent = `
+            document.addEventListener('visibilitychange', e => e.stopImmediatePropagation(), true);
+            Object.defineProperty(document, 'hidden', { get: () => false });
+            Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
+        `;
+        document.documentElement.appendChild(s1);
+        s1.remove();
+
+        // Video detection e auto-next — nel contesto userscript (non iniettato)
         setInterval(() => {
-            document.querySelectorAll('video').forEach(video => {
+            const videos = document.querySelectorAll('video');
+            videos.forEach(video => {
                 if (!video._endAttached) {
                     video._endAttached = true;
+                    console.log(TAG, 'Video trovato, attacco ended listener');
+
                     video.addEventListener('ended', () => {
-                        document.dispatchEvent(new CustomEvent('__videoEnded__'));
+                        console.log(TAG, '🎬 Video ENDED!');
+
+                        // Cerca link nella pagina
+                        const links = document.querySelectorAll('a.iframe-link');
+                        console.log(TAG, 'Link trovati:', links.length);
+
+                        for (const link of links) {
+                            const li = link.closest('li');
+                            const hasCheck = li ? li.querySelector('svg') : false;
+                            console.log(TAG, 'Link:', link.textContent.trim().substring(0, 40), '| Completato:', !!hasCheck);
+
+                            if (!hasCheck) {
+                                console.log(TAG, '✅ Clicco:', link.href);
+                                // Prova click
+                                link.click();
+                                // Fallback: naviga direttamente
+                                setTimeout(() => {
+                                    if (document.querySelector('video')?.ended !== false) {
+                                        console.log(TAG, 'Click non ha funzionato, navigo con location');
+                                        window.location.href = link.href;
+                                    }
+                                }, 1000);
+                                return;
+                            }
+                        }
+
+                        // Nessun video rimasto
+                        console.log(TAG, 'Nessun link disponibile, segnalo al parent');
+                        window.parent.postMessage({ type: 'TM_VIDEO_ENDED' }, '*');
                     });
+
+                    // Autoplay
+                    if (video.paused) {
+                        video.play().then(() => console.log(TAG, 'Autoplay OK'))
+                                   .catch(e => console.log(TAG, 'Autoplay blocked:', e));
+                    }
                 }
             });
         }, 500);
+
+        return;
+    }
+
+    // ============ PAGINA PRINCIPALE (frontend) ============
+    Notification.requestPermission();
+
+    const s2 = document.createElement('script');
+    s2.textContent = `
+        document.addEventListener('visibilitychange', e => e.stopImmediatePropagation(), true);
+        Object.defineProperty(document, 'hidden', { get: () => false });
+        Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
     `;
-    document.documentElement.appendChild(script);
-    script.remove();
+    document.documentElement.appendChild(s2);
+    s2.remove();
 
     function realClick(el) {
         const rect = el.getBoundingClientRect();
@@ -39,53 +99,26 @@
         el.dispatchEvent(new MouseEvent('click', opts));
     }
 
-    document.addEventListener('__videoEnded__', () => {
+    window.addEventListener('message', (e) => {
+        if (e.data?.type !== 'TM_VIDEO_ENDED') return;
+        console.log(TAG, 'Sezione completata, chiudo modale');
+
         if (Notification.permission === 'granted') {
-            new Notification('✅ Video completato!', {
-                body: 'Chiudo la modale e passo al prossimo...',
+            new Notification('✅ Sezione completata!', {
+                body: 'Tutti i video di questa sezione sono finiti.',
                 icon: 'https://frontend.interattivaeditore.com/favicon.ico'
             });
         }
 
-        // 1) Chiudi la modale
         setTimeout(() => {
-            const closeBtn = document.querySelector('interattiva-hoverable-icon[iconname="interattiva-esci"]');
-            if (closeBtn) {
-                realClick(closeBtn);
-                console.log('[TM] Modale chiusa');
+            const modal = document.querySelector('ion-modal');
+            if (modal?.dismiss) modal.dismiss();
+            else {
+                const closeBtn = document.querySelector('interattiva-hoverable-icon[iconname="interattiva-esci"]');
+                if (closeBtn) { realClick(closeBtn); closeBtn.click(); }
             }
-
-            // 2) Cerca il prossimo video NON completato
-            setTimeout(() => {
-                const rows = document.querySelectorAll('interattiva-module-row');
-                console.log('[TM] Righe trovate:', rows.length);
-
-                for (const row of rows) {
-                    const labels = row.querySelectorAll('ion-label');
-                    let stato = '';
-                    labels.forEach(l => stato += l.textContent.trim() + ' ');
-                    stato = stato.trim();
-
-                    console.log('[TM] Riga stato:', stato);
-
-                    // Salta i video completati
-                    if (stato.includes('Completato')) continue;
-
-                    // Trovato un video non completato — cliccalo
-                    // Prova diversi target per trovare quello giusto
-                    const target = row.querySelector('div.rounded-xl.overflow-hidden')
-                                || row.querySelector('div.cursor-pointer')
-                                || row;
-
-                    console.log('[TM] ✅ Target trovato:', target.tagName, target.className.substring(0, 50));
-                    realClick(target);
-
-                    // Fallback: prova anche il click nativo
-                    setTimeout(() => target.click(), 100);
-                    break;
-                }
-            }, 2000);
-
-        }, 500);
+        }, 1000);
     });
+
+    console.log(TAG, 'In ascolto per messaggi iframe');
 })();
