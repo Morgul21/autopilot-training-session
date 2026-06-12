@@ -7,7 +7,7 @@ Lo script tramite Tampermonkey fa runnare in background i video formativi su un 
 
 🔔 Notifica di sistema quando il video è finito, anche se chrome è su un altra scheda o ridotto ad icona.
 
-🔇 V1.0 Compatibile con il mute della scheda. N.B. Mutandolo direttamente dal video lo script non parte (to-do)
+🔇 V1.0 Compatibile con il mute della scheda. N.B. Mutandolo direttamente dalla finestra video, il video stesso potrebbe mettersi in pausa (to-do)
 
 :rocket: aggiunta autopilot che evita di ricliccare sul video
   
