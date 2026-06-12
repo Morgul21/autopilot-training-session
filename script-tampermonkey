@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Interattiva - No Pause + Auto Next
+// @name         Interattiva - No Pause + Auto Next6.0
 // @namespace    http://tampermonkey.net/
-// @version      3.2
+// @version      6.0
 // @match        https://frontend.interattivaeditore.com/*
 // @match        https://stella.interattivaeditore.com/*
 // @run-at       document-start
@@ -10,115 +10,130 @@
 // ==/UserScript==
 (function() {
     const isIframe = window.self !== window.top;
-    const TAG = isIframe ? '[TM-iframe]' : '[TM-parent]';
-    console.log(TAG, 'Script avviato su:', window.location.hostname);
+    const TAG = isIframe ? '[TM-iframe]' : '[TM-main]';
 
-    // ============ DENTRO L'IFRAME (stella) ============
-    if (isIframe) {
-        // Visibility override nel page context
-        const s1 = document.createElement('script');
-        s1.textContent = `
-            document.addEventListener('visibilitychange', e => e.stopImmediatePropagation(), true);
-            Object.defineProperty(document, 'hidden', { get: () => false });
-            Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
-        `;
-        document.documentElement.appendChild(s1);
-        s1.remove();
-
-        // Video detection e auto-next — nel contesto userscript (non iniettato)
-        setInterval(() => {
-            const videos = document.querySelectorAll('video');
-            videos.forEach(video => {
-                if (!video._endAttached) {
-                    video._endAttached = true;
-                    console.log(TAG, 'Video trovato, attacco ended listener');
-
-                    video.addEventListener('ended', () => {
-                        console.log(TAG, '🎬 Video ENDED!');
-
-                        // Cerca link nella pagina
-                        const links = document.querySelectorAll('a.iframe-link');
-                        console.log(TAG, 'Link trovati:', links.length);
-
-                        for (const link of links) {
-                            const li = link.closest('li');
-                            const hasCheck = li ? li.querySelector('svg') : false;
-                            console.log(TAG, 'Link:', link.textContent.trim().substring(0, 40), '| Completato:', !!hasCheck);
-
-                            if (!hasCheck) {
-                                console.log(TAG, '✅ Clicco:', link.href);
-                                // Prova click
-                                link.click();
-                                // Fallback: naviga direttamente
-                                setTimeout(() => {
-                                    if (document.querySelector('video')?.ended !== false) {
-                                        console.log(TAG, 'Click non ha funzionato, navigo con location');
-                                        window.location.href = link.href;
-                                    }
-                                }, 1000);
-                                return;
-                            }
-                        }
-
-                        // Nessun video rimasto
-                        console.log(TAG, 'Nessun link disponibile, segnalo al parent');
-                        window.parent.postMessage({ type: 'TM_VIDEO_ENDED' }, '*');
-                    });
-
-                    // Autoplay
-                    if (video.paused) {
-                        video.play().then(() => console.log(TAG, 'Autoplay OK'))
-                                   .catch(e => console.log(TAG, 'Autoplay blocked:', e));
-                    }
-                }
-            });
-        }, 500);
-
-        return;
-    }
-
-    // ============ PAGINA PRINCIPALE (frontend) ============
-    Notification.requestPermission();
-
-    const s2 = document.createElement('script');
-    s2.textContent = `
+    // ---- Blocca pause da visibilitychange (in entrambi i contesti) ----
+    const vis = document.createElement('script');
+    vis.textContent = `
         document.addEventListener('visibilitychange', e => e.stopImmediatePropagation(), true);
         Object.defineProperty(document, 'hidden', { get: () => false });
         Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
     `;
-    document.documentElement.appendChild(s2);
-    s2.remove();
+    document.documentElement.appendChild(vis);
+    vis.remove();
+
+    // ---- Aggancia listener "ended" + autoplay (muted) a TUTTI i video ----
+    // Iniettiamo nel contesto della pagina cosi' parliamo con lo stesso DOM.
+    const hook = document.createElement('script');
+    hook.textContent = `
+        (function(){
+            const IS_IFRAME = ${isIframe};
+            setInterval(() => {
+                document.querySelectorAll('video').forEach(video => {
+                    // Aggancia il listener una sola volta
+                    if (!video._endAttached) {
+                        video._endAttached = true;
+                        console.log('${TAG} video trovato, attacco ended');
+                        video.addEventListener('ended', () => {
+                            console.log('${TAG} video ENDED');
+                            if (IS_IFRAME) window.parent.postMessage({ type: 'TM_VIDEO_ENDED' }, '*');
+                            else window.postMessage({ type: 'TM_VIDEO_ENDED' }, '*');
+                        });
+                    }
+                    // Gira a OGNI tick finche' il video e' in pausa:
+                    // muted a livello di elemento -> autoplay sempre permesso
+                    if (video.paused && !video.ended) {
+                        video.muted = true;
+                        video.play().catch(e => console.log('${TAG} play bloccato:', e));
+                    }
+                });
+            }, 500);
+        })();
+    `;
+    document.documentElement.appendChild(hook);
+    hook.remove();
+
+    // Nell'iframe ci fermiamo qui: la chiusura la fa la pagina principale.
+    if (isIframe) return;
+
+    // ============ SOLO PAGINA PRINCIPALE ============
+    Notification.requestPermission();
 
     function realClick(el) {
-        const rect = el.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-        const y = rect.top + rect.height / 2;
-        const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y };
+        const r = el.getBoundingClientRect();
+        const opts = { bubbles: true, cancelable: true, view: window,
+                       clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
         el.dispatchEvent(new MouseEvent('mousedown', opts));
         el.dispatchEvent(new MouseEvent('mouseup', opts));
         el.dispatchEvent(new MouseEvent('click', opts));
     }
 
-    window.addEventListener('message', (e) => {
-        if (e.data?.type !== 'TM_VIDEO_ENDED') return;
-        console.log(TAG, 'Sezione completata, chiudo modale');
+    function closeModal() {
+        // 1) bottone X dentro la modale interattiva
+        const esci = document.querySelector(
+            'interattiva-video-modal interattiva-hoverable-icon[iconname="interattiva-esci"] span'
+        ) || document.querySelector(
+            'interattiva-hoverable-icon[iconname="interattiva-esci"] span'
+        );
+        if (esci) {
+            console.log('[TM-main] chiudo via click su esci');
+            realClick(esci);
+            return true;
+        }
+        // 2) fallback ion-modal.dismiss()
+        const modal = document.querySelector('ion-modal');
+        if (modal?.dismiss) {
+            console.log('[TM-main] chiudo via ion-modal.dismiss()');
+            modal.dismiss();
+            return true;
+        }
+        // 3) fallback ESC
+        console.log('[TM-main] fallback tasto ESC');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+        return false;
+    }
 
-        if (Notification.permission === 'granted') {
-            new Notification('✅ Sezione completata!', {
-                body: 'Tutti i video di questa sezione sono finiti.',
-                icon: 'https://frontend.interattivaeditore.com/favicon.ico'
-            });
+    function clickNextModule() {
+        const rows = document.querySelectorAll('interattiva-module-row > div.cursor-pointer');
+        console.log('[TM-main] righe cliccabili trovate:', rows.length);
+
+        for (const row of rows) {
+            const labelText = row.querySelector('ion-label')?.textContent?.trim() || '';
+
+            // Salta i moduli gia' completati
+            if (labelText.includes('Completato')) continue;
+
+            // "Materiale didattico" e' un download, non un video: salta anche quello
+            const isDownload = row.querySelector('interattiva-hoverable-icon[iconname="interattiva-download"]');
+            if (isDownload) continue;
+
+            // Prima riga cliccabile NON completata = prossimo modulo
+            // (sia "In Corso" sia "Da Iniziare")
+            console.log('[TM-main] click su modulo successivo:',
+                        row.querySelector('h1')?.textContent?.trim(), '| stato:', labelText);
+            realClick(row);
+            return;
         }
 
+        console.log('[TM-main] nessun modulo successivo: corso finito');
+        if (Notification.permission === 'granted') {
+            new Notification('🎉 Corso completato!', { body: 'Tutti i moduli completati.' });
+        }
+    }
+
+    let handling = false;
+    window.addEventListener('message', (e) => {
+        if (e.data?.type !== 'TM_VIDEO_ENDED') return;
+        if (handling) return;           // evita doppi trigger
+        handling = true;
+        console.log('[TM-main] ricevuto TM_VIDEO_ENDED');
+
+        closeModal();
         setTimeout(() => {
-            const modal = document.querySelector('ion-modal');
-            if (modal?.dismiss) modal.dismiss();
-            else {
-                const closeBtn = document.querySelector('interattiva-hoverable-icon[iconname="interattiva-esci"]');
-                if (closeBtn) { realClick(closeBtn); closeBtn.click(); }
-            }
-        }, 1000);
+            clickNextModule();
+            handling = false;
+        }, 1500);
     });
 
-    console.log(TAG, 'In ascolto per messaggi iframe');
+    console.log('[TM-main] script principale caricato (v6.0)');
 })();
